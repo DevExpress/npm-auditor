@@ -18,7 +18,12 @@ module.exports = class DependenciesScanner {
     }
 
     _prepareRequires (depPackageInfo, dependencies) {
-        const subDeps = Object.keys(dependencies);
+        let subDeps = Object.keys(dependencies);
+
+        const optionalDeps = depPackageInfo.packageJson.optionalDependencies;
+
+        if (optionalDeps)
+            subDeps = subDeps.filter(subDep => !optionalDeps[subDep]);
 
         depPackageInfo.hasRequires  = true;
 
@@ -46,8 +51,10 @@ module.exports = class DependenciesScanner {
         const depPackageJson = require(depPackageJsonPath);
 
         const depPackageInfo = {
-            packageDir: depPackageDir,
+            packageDir:      depPackageDir,
             packageJsonPath: depPackageJsonPath,
+            packageJson:     depPackageJson,
+
             version: depPackageJson.version,
 
             requirePaths: {},
@@ -77,11 +84,9 @@ module.exports = class DependenciesScanner {
             this.packageCache[depPackageJsonPath] = depPackageInfo;
         }
 
-        const depPackageJson = require(depPackageJsonPath);
-
         const subDependencies = this.scanFlags.useDevDeps
-            ? depPackageJson.devDependencies
-            : depPackageJson.dependencies;
+            ? depPackageInfo.packageJson.devDependencies
+            : depPackageInfo.packageJson.dependencies;
 
         if (subDependencies && !isEmpty(subDependencies))
             this._prepareRequires(depPackageInfo, subDependencies);
