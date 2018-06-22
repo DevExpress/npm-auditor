@@ -1,10 +1,12 @@
-const path             = require('path');
-const fs               = require('fs');
-const os               = require('os');
-const zlib             = require('zlib');
-const npmFetch         = require('npm-registry-fetch');
-const npmAuditReporter = require('npm-audit-report');
-const { mapValues }    = require('lodash');
+const path                = require('path');
+const fs                  = require('fs');
+const os                  = require('os');
+const zlib                = require('zlib');
+const npmFetch            = require('npm-registry-fetch');
+const npmAuditReporter    = require('npm-audit-report');
+const filterTree          = require('./utils/filter-package-tree');
+const DependenciesScanner = require('./dependencies-scanner');
+
 
 const NPM_AUDIT_API_PATH = '/-/npm/v1/security/audits';
 
@@ -16,8 +18,6 @@ const NPM_AUDIT_API_OPTS = {
         'Content-Type':     'application/json'
     }
 };
-
-const LOCKED_DEPENDENCIES_REQUIRED_PROPERTIES = ['version', 'dev', 'requires', 'integrity'];
 
 function readFile (filePath) {
     return new Promise((resolve, reject) => {
@@ -48,30 +48,19 @@ function getMetadata () {
     };
 }
 
-function filterTree (packageTree) {
-    return mapValues(packageTree, packageInfo => {
-        const requiredInfo = {};
-
-        for (const requiredProperty of LOCKED_DEPENDENCIES_REQUIRED_PROPERTIES) {
-            if (requiredProperty in packageInfo)
-                requiredInfo[requiredProperty] = packageInfo[requiredProperty];
-        }
-
-        if (packageInfo.dependencies)
-            requiredInfo.dependencies = filterTree(packageInfo.dependencies);
-
-        return requiredInfo;
-    });
-}
-
 function getNpmLockDependencies (lockFileName) {
     return readFile(path.resolve(lockFileName))
         .then(lockFileContents => filterTree(JSON.parse(lockFileContents.toString()).dependencies));
 }
 
-function getAllDependencies () {
+function getAllDependencies (packageJsonPath) {
     return getNpmLockDependencies('package-lock.json')
         .catch(() => getNpmLockDependencies('npm-shrinkwrap.json'))
+        .catch(() => {
+            const dependenciesScanner = new DependenciesScanner(packageJsonPath);
+
+            return dependenciesScanner.scan();
+        })
         .catch(() => {
             throw new Error('Failed to get locked dependencies from package-lock.json or npm-shrinkwrap.json!');
         });
@@ -82,7 +71,7 @@ function getAuditData () {
     const packageJson     = require(packageJsonPath);
     const metadata        = getMetadata();
 
-    return getAllDependencies(packageJsonPath, packageJson)
+    return getAllDependencies(packageJsonPath)
         .then(allDependencies => ({
             name:         packageJson.name,
             version:      packageJson.version,
